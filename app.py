@@ -154,6 +154,36 @@ def prep_expenses(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("Date", ascending=False).reset_index(drop=True)
 
 
+@st.cache_data(show_spinner=False)
+def prep_bookings(df: pd.DataFrame) -> pd.DataFrame:
+    df = normalize_columns(df)
+    rename_map = {}
+    for col in df.columns:
+        low = col.lower().strip()
+        if low in {"date", "booking date"}:
+            rename_map[col] = "Date"
+        elif low in {"booking name", "name", "guest name"}:
+            rename_map[col] = "Booking Name"
+        elif low in {"booking engine", "engine", "channel", "source"}:
+            rename_map[col] = "Booking Engine"
+        elif low == "amount":
+            rename_map[col] = "Amount"
+    df = df.rename(columns=rename_map)
+
+    missing = [c for c in EXPECTED_BOOKING_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "Bookings sheet is missing required columns: " + ", ".join(missing)
+        )
+
+    df["Amount"] = clean_money(df["Amount"])
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+    df["Month"] = df["Date"].dt.month_name()
+    df["Month_num"] = df["Date"].dt.month
+    df["Day"] = df["Date"].dt.day
+    return df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+
+
 def dataframe_download_bytes(df: pd.DataFrame, name: str) -> bytes:
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
@@ -281,7 +311,116 @@ def render_expense_analysis(expenses_df: pd.DataFrame) -> None:
     st.dataframe(filtered, use_container_width=True, hide_index=True)
 
 
-def render_raw_data(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None:
+def render_booking_engine(bookings_df: pd.DataFrame) -> None:
+    st.subheader("Bookings by Engine")
+
+    months_available = (
+        bookings_df.dropna(subset=["Month"])
+        .drop_duplicates(subset=["Month", "Month_num"])
+        .sort_values("Month_num")["Month"]
+        .tolist()
+    )
+
+    if not months_available:
+        st.info("No booking data available.")
+        return
+
+    selected_month = st.selectbox("Select Month", ["All Months"] + months_available, key="engine_month")
+
+    if selected_month == "All Months":
+        filtered = bookings_df
+        chart_title = "Bookings by Engine – All Months"
+    else:
+        filtered = bookings_df[bookings_df["Month"] == selected_month]
+        chart_title = f"Bookings by Engine – {selected_month}"
+
+    if filtered.empty:
+        st.info("No bookings for the selected period.")
+        return
+
+    engine_totals = (
+        filtered.groupby("Booking Engine", dropna=False, as_index=False)["Amount"]
+        .sum()
+        .sort_values("Amount", ascending=False)
+    )
+
+    left, right = st.columns((1, 1))
+    with left:
+        pie = px.pie(
+            engine_totals,
+            names="Booking Engine",
+            values="Amount",
+            title=chart_title,
+            hole=0.35,
+        )
+        pie.update_traces(textinfo="percent+label")
+        st.plotly_chart(pie, use_container_width=True)
+
+    with right:
+        bar = px.bar(
+            engine_totals,
+            x="Booking Engine",
+            y="Amount",
+            title="Revenue by Booking Engine",
+            text_auto=True,
+        )
+        bar.update_xaxes(tickangle=-25)
+        st.plotly_chart(bar, use_container_width=True)
+
+    st.dataframe(
+        engine_totals.rename(columns={"Amount": "Total Revenue (₹)"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_daily_revenue(bookings_df: pd.DataFrame) -> None:
+    st.subheader("Daily Booking Revenue")
+
+    months_available = (
+        bookings_df.dropna(subset=["Month"])
+        .drop_duplicates(subset=["Month", "Month_num"])
+        .sort_values("Month_num")["Month"]
+        .tolist()
+    )
+
+    if not months_available:
+        st.info("No booking data available.")
+        return
+
+    selected_month = st.selectbox("Select Month", months_available, key="daily_rev_month")
+
+    filtered = bookings_df[bookings_df["Month"] == selected_month]
+
+    if filtered.empty:
+        st.info(f"No bookings found for {selected_month}.")
+        return
+
+    daily = (
+        filtered.groupby("Day", as_index=False)["Amount"]
+        .sum()
+        .sort_values("Day")
+    )
+
+    total = daily["Amount"].sum()
+    peak_row = daily.loc[daily["Amount"].idxmax()]
+    k1, k2 = st.columns(2)
+    k1.metric("Total Revenue", fmt_currency(total))
+    k2.metric("Peak Day", f"Day {int(peak_row['Day'])} – {fmt_currency(peak_row['Amount'])}")
+
+    fig = px.bar(
+        daily,
+        x="Day",
+        y="Amount",
+        title=f"Revenue per Day – {selected_month}",
+        text_auto=True,
+        labels={"Day": "Day of Month", "Amount": "Total Revenue (₹)"},
+    )
+    fig.update_xaxes(dtick=1)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_raw_data(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame, bookings_df: pd.DataFrame) -> None:
     st.subheader("Monthly Summary")
     st.dataframe(monthly_df, use_container_width=True, hide_index=True)
     st.download_button(
@@ -293,6 +432,9 @@ def render_raw_data(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
 
     st.subheader("Expenses")
     st.dataframe(expenses_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Bookings")
+    st.dataframe(bookings_df, use_container_width=True, hide_index=True)
 
 
 def show_setup_help() -> None:
@@ -310,6 +452,7 @@ def show_setup_help() -> None:
  google_sheet_key = "YOUR_GOOGLE_SHEET_KEY"
  monthly_sheet_name = "MonthlySummary"
  expenses_sheet_name = "Expenses"
+ bookings_sheet_name = "BookingSummary"
 
  [gcp_service_account]
  type = "service_account"
@@ -331,6 +474,7 @@ Or use public CSV exports:
  data_source = "public_csv"
  monthly_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
  expenses_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
+ bookings_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
 ```
             """
         )
@@ -354,13 +498,17 @@ def main() -> None:
     try:
         monthly_raw = load_sheet("monthly_sheet_name", "MonthlySummary")
         expenses_raw = load_sheet("expenses_sheet_name", "Expenses")
+        bookings_raw = load_sheet("bookings_sheet_name", "BookingSummary")
         monthly_df = prep_monthly(monthly_raw)
         expenses_df = prep_expenses(expenses_raw)
+        bookings_df = prep_bookings(bookings_raw)
     except Exception as exc:
         st.error(f"Could not load dashboard data: {exc}")
         st.stop()
 
-    overview_tab, expenses_tab, raw_tab = st.tabs(["Overview", "Expense Analysis", "Raw Data"])
+    overview_tab, expenses_tab, engine_tab, daily_rev_tab, raw_tab = st.tabs(
+        ["Overview", "Expense Analysis", "Bookings by Engine", "Daily Revenue", "Raw Data"]
+    )
 
     with overview_tab:
         render_overview(monthly_df, expenses_df)
@@ -368,8 +516,14 @@ def main() -> None:
     with expenses_tab:
         render_expense_analysis(expenses_df)
 
+    with engine_tab:
+        render_booking_engine(bookings_df)
+
+    with daily_rev_tab:
+        render_daily_revenue(bookings_df)
+
     with raw_tab:
-        render_raw_data(monthly_df, expenses_df)
+        render_raw_data(monthly_df, expenses_df, bookings_df)
 
 
 if __name__ == "__main__":
