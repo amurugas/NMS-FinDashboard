@@ -373,6 +373,28 @@ def render_booking_engine(bookings_df: pd.DataFrame) -> None:
         hide_index=True,
     )
 
+    monthly_engine = (
+        bookings_df.dropna(subset=["Month"])
+        .groupby(["Month_num", "Month", "Booking Engine"], as_index=False)["Amount"]
+        .sum()
+        .sort_values("Month_num")
+    )
+
+    if not monthly_engine.empty:
+        month_order = monthly_engine.drop_duplicates("Month_num")["Month"].tolist()
+        stacked_bar = px.bar(
+            monthly_engine,
+            x="Month",
+            y="Amount",
+            color="Booking Engine",
+            barmode="stack",
+            title="Revenue by Booking Engine – Monthly Progression",
+            labels={"Amount": "Revenue (₹)", "Month": "Month"},
+            category_orders={"Month": month_order},
+        )
+        stacked_bar.update_xaxes(tickangle=-25)
+        st.plotly_chart(stacked_bar, use_container_width=True)
+
 
 def render_daily_revenue(bookings_df: pd.DataFrame) -> None:
     st.subheader("Daily Booking Revenue")
