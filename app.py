@@ -437,63 +437,21 @@ def render_raw_data(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame, booking
     st.dataframe(bookings_df, use_container_width=True, hide_index=True)
 
 
-def show_setup_help() -> None:
-    with st.expander("How to connect this app to Google Sheets", expanded=True):
-        st.markdown(
-            """
-1. Create a Google Cloud service account and enable Google Sheets API.
-2. Share your Google Sheet with the service account email.
-3. Add the credentials JSON to Streamlit secrets under `[gcp_service_account]`.
-4. Add these secrets too:
 
-```toml
-# Option A: private Google Sheet
- data_source = "private_google_sheet"
- google_sheet_key = "YOUR_GOOGLE_SHEET_KEY"
- monthly_sheet_name = "MonthlySummary"
- expenses_sheet_name = "Expenses"
- bookings_sheet_name = "BookingSummary"
-
- [gcp_service_account]
- type = "service_account"
- project_id = "..."
- private_key_id = "..."
- private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
- client_email = "..."
- client_id = "..."
- token_uri = "https://oauth2.googleapis.com/token"
- auth_uri = "https://accounts.google.com/o/oauth2/auth"
- auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
- client_x509_cert_url = "..."
- universe_domain = "googleapis.com"
-```
-
-Or use public CSV exports:
-
-```toml
- data_source = "public_csv"
- monthly_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
- expenses_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
- bookings_sheet_name = "https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
-```
-            """
-        )
 
 
 def main() -> None:
-    st.title("🏨 Hotel Financial Dashboard")
+    st.title("🏨 NMS Grand View Financial Dashboard")
     st.caption("Live financial dashboard connected to Google Sheets.")
 
     with st.sidebar:
         st.header("Dashboard Settings")
-        st.write("Use Streamlit secrets for production configuration.")
         refresh = st.button("Refresh data")
         if refresh:
             st.cache_data.clear()
             st.cache_resource.clear()
             st.success("Cache cleared. Data will reload.")
 
-    show_setup_help()
 
     try:
         monthly_raw = load_sheet("monthly_sheet_name", "MonthlySummary")
