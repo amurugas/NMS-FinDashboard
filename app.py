@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="Hotel Financial Dashboard", page_icon="🏨", layout="wide")
+st.set_page_config(page_title="NMS Grand View Financial Dashboard", page_icon="🏨", layout="wide")
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -17,6 +17,7 @@ SCOPES = [
 
 EXPECTED_MONTHLY_COLS = ["Month", "Total Revenue", "Total Expenses", "Net Profit"]
 EXPECTED_EXPENSE_COLS = ["Date", "Category", "Description", "Amount", "Payment Mode", "Remarks"]
+EXPECTED_BOOKING_COLS = ["Date", "Booking Name", "Booking Engine", "Amount"]
 
 
 def fmt_currency(value: float) -> str:
