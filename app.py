@@ -19,6 +19,11 @@ EXPECTED_MONTHLY_COLS = ["Month", "Total Revenue", "Total Expenses", "Net Profit
 EXPECTED_EXPENSE_COLS = ["Date", "Category", "Description", "Amount", "Payment Mode", "Remarks"]
 EXPECTED_BOOKING_COLS = ["Date", "Booking Name", "Booking Engine", "Amount"]
 
+MONTH_ORDER = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
 
 def fmt_currency(value: float) -> str:
     return f"₹{value:,.0f}"
@@ -113,10 +118,7 @@ def prep_monthly(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["% Increase"] = pd.to_numeric(df["% Increase"], errors="coerce").fillna(0)
 
-    month_order = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
-    ]
+    month_order = MONTH_ORDER
     df["Month"] = pd.Categorical(df["Month"], categories=month_order, ordered=True)
     return df.sort_values("Month").reset_index(drop=True)
 
@@ -151,6 +153,7 @@ def prep_expenses(df: pd.DataFrame) -> pd.DataFrame:
     df["Amount"] = clean_money(df["Amount"])
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
     df["Month"] = df["Date"].dt.month_name()
+    df["Month_num"] = df["Date"].dt.month
     return df.sort_values("Date", ascending=False).reset_index(drop=True)
 
 
@@ -215,9 +218,10 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
             y=["Total Revenue", "Total Expenses"],
             barmode="group",
             title="Revenue vs Expenses",
-            text_auto=True,
+            labels={"value": "Amount (₹)", "variable": ""},
         )
-        fig_rev_exp.update_layout(legend_title_text="")
+        fig_rev_exp.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+        fig_rev_exp.update_layout(legend_title_text="", yaxis=dict(tickprefix="₹", tickformat=","))
         st.plotly_chart(fig_rev_exp, use_container_width=True)
 
     with right:
@@ -226,8 +230,10 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
             x="Month",
             y="Net Profit",
             title="Net Profit by Month",
-            text_auto=True,
+            labels={"Net Profit": "Net Profit (₹)"},
         )
+        fig_profit.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+        fig_profit.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
         st.plotly_chart(fig_profit, use_container_width=True)
 
     cat_totals = (
@@ -253,8 +259,10 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
             x="Category",
             y="Amount",
             title="Total Expenditure by Category",
-            text_auto=True,
+            labels={"Amount": "Amount (₹)"},
         )
+        bar.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+        bar.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
         bar.update_xaxes(tickangle=-25)
         st.plotly_chart(bar, use_container_width=True)
 
@@ -283,15 +291,60 @@ def render_expense_analysis(expenses_df: pd.DataFrame) -> None:
     k2.metric("Transactions", f"{txn_count:,}")
     k3.metric("Avg Transaction", fmt_currency(avg_txn))
 
-    daily = (
-        filtered.dropna(subset=["Date"])
-        .groupby("Date", as_index=False)["Amount"]
-        .sum()
-        .sort_values("Date")
+    # Bar chart: daily expenses for a selected month
+    months_with_data = (
+        filtered.dropna(subset=["Date", "Month"])
+        .drop_duplicates(subset=["Month", "Month_num"])
+        .sort_values("Month_num")["Month"]
+        .tolist()
     )
-    if not daily.empty:
-        line = px.line(daily, x="Date", y="Amount", title="Daily Expense Trend", markers=True)
-        st.plotly_chart(line, use_container_width=True)
+    if months_with_data:
+        selected_bar_month = st.selectbox(
+            "Select Month for Expense Breakdown", months_with_data, key="exp_month_bar"
+        )
+        month_daily = (
+            filtered[filtered["Month"] == selected_bar_month]
+            .dropna(subset=["Date"])
+            .groupby("Date", as_index=False)["Amount"]
+            .sum()
+            .sort_values("Date")
+        )
+        if not month_daily.empty:
+            bar_exp = px.bar(
+                month_daily,
+                x="Date",
+                y="Amount",
+                title=f"Daily Expenses – {selected_bar_month}",
+                labels={"Date": "Date", "Amount": "Expense (₹)"},
+            )
+            bar_exp.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+            bar_exp.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
+            st.plotly_chart(bar_exp, use_container_width=True)
+        else:
+            st.info(f"No expense data available for {selected_bar_month}.")
+
+    # Stacked bar chart: expense categories by month
+    monthly_cat = (
+        expenses_df.dropna(subset=["Month"])
+        .groupby(["Month_num", "Month", "Category"], dropna=False, as_index=False)["Amount"]
+        .sum()
+        .sort_values("Month_num")
+    )
+    if not monthly_cat.empty:
+        ordered_months = monthly_cat.drop_duplicates("Month_num").sort_values("Month_num")["Month"].tolist()
+        stacked = px.bar(
+            monthly_cat,
+            x="Month",
+            y="Amount",
+            color="Category",
+            barmode="stack",
+            title="Expense Categories by Month",
+            labels={"Amount": "Expense (₹)", "Month": "Month"},
+            category_orders={"Month": ordered_months},
+        )
+        stacked.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
+        stacked.update_xaxes(tickangle=-25)
+        st.plotly_chart(stacked, use_container_width=True)
 
     cat_table = (
         filtered.groupby("Category", dropna=False, as_index=False)["Amount"]
@@ -362,8 +415,10 @@ def render_booking_engine(bookings_df: pd.DataFrame) -> None:
             x="Booking Engine",
             y="Amount",
             title="Revenue by Booking Engine",
-            text_auto=True,
+            labels={"Amount": "Revenue (₹)"},
         )
+        bar.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+        bar.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
         bar.update_xaxes(tickangle=-25)
         st.plotly_chart(bar, use_container_width=True)
 
@@ -392,6 +447,7 @@ def render_booking_engine(bookings_df: pd.DataFrame) -> None:
             labels={"Amount": "Revenue (₹)", "Month": "Month"},
             category_orders={"Month": month_order},
         )
+        stacked_bar.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
         stacked_bar.update_xaxes(tickangle=-25)
         st.plotly_chart(stacked_bar, use_container_width=True)
 
@@ -435,9 +491,10 @@ def render_daily_revenue(bookings_df: pd.DataFrame) -> None:
         x="Day",
         y="Amount",
         title=f"Revenue per Day – {selected_month}",
-        text_auto=True,
         labels={"Day": "Day of Month", "Amount": "Total Revenue (₹)"},
     )
+    fig.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
+    fig.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
     fig.update_xaxes(dtick=1)
     st.plotly_chart(fig, use_container_width=True)
 
