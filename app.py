@@ -343,7 +343,7 @@ def render_expense_analysis(expenses_df: pd.DataFrame) -> None:
         else:
             st.info(f"No expense data available for {selected_bar_month}.")
 
-    # Stacked bar chart: expense categories by month
+    # Multi-line trend chart: expense categories by month
     monthly_cat = (
         expenses_df.dropna(subset=["Month"])
         .groupby(["Month_num", "Month", "Category"], dropna=False, as_index=False)["Amount"]
@@ -352,19 +352,30 @@ def render_expense_analysis(expenses_df: pd.DataFrame) -> None:
     )
     if not monthly_cat.empty:
         ordered_months = monthly_cat.drop_duplicates("Month_num").sort_values("Month_num")["Month"].tolist()
-        stacked = px.bar(
-            monthly_cat,
-            x="Month",
-            y="Amount",
-            color="Category",
-            barmode="stack",
-            title="Expense Categories by Month",
-            labels={"Amount": "Expense (₹)", "Month": "Month"},
-            category_orders={"Month": ordered_months},
+        all_trend_categories = sorted(monthly_cat["Category"].dropna().unique().tolist())
+        trend_categories = st.multiselect(
+            "Select Categories for Trend Chart",
+            all_trend_categories,
+            default=all_trend_categories,
+            key="trend_cat_select",
         )
-        stacked.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
-        stacked.update_xaxes(tickangle=-25)
-        st.plotly_chart(stacked, use_container_width=True)
+        if not trend_categories:
+            st.info("Select at least one category to display the trend chart.")
+        else:
+            trend_data = monthly_cat[monthly_cat["Category"].isin(trend_categories)]
+            line_trend = px.line(
+                trend_data,
+                x="Month",
+                y="Amount",
+                color="Category",
+                markers=True,
+                title="Expense Category Trends by Month",
+                labels={"Amount": "Expense (₹)", "Month": "Month"},
+                category_orders={"Month": ordered_months},
+            )
+            line_trend.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
+            line_trend.update_xaxes(tickangle=-25)
+            st.plotly_chart(line_trend, use_container_width=True)
 
     cat_table = (
         filtered.groupby("Category", dropna=False, as_index=False)["Amount"]
