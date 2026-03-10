@@ -236,8 +236,27 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
         fig_profit.update_layout(yaxis=dict(tickprefix="₹", tickformat=","))
         st.plotly_chart(fig_profit, use_container_width=True)
 
+    months_available = (
+        expenses_df.dropna(subset=["Month"])
+        .drop_duplicates(subset=["Month", "Month_num"])
+        .sort_values("Month_num")["Month"]
+        .tolist()
+    )
+
+    if not months_available:
+        st.info("No booking data available.")
+        return
+
+    selected_month = st.selectbox("Select Month", months_available, key="daily_rev_month")
+
+    filtered = expenses_df[expenses_df["Month"] == selected_month]
+
+    if filtered.empty:
+        st.info(f"No Expenses found for {selected_month}.")
+        return
+
     cat_totals = (
-        expenses_df.groupby("Category", dropna=False, as_index=False)["Amount"]
+        filtered.groupby("Category", dropna=False, as_index=False)["Amount"]
         .sum()
         .sort_values("Amount", ascending=False)
     )
@@ -258,7 +277,7 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
             cat_totals,
             x="Category",
             y="Amount",
-            title="Total Expenditure by Category",
+            title="Total Expenditure by Category for selected month",
             labels={"Amount": "Amount (₹)"},
         )
         bar.update_traces(texttemplate="₹%{y:,.0f}", textposition="outside")
