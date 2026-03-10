@@ -247,7 +247,7 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
         st.info("No booking data available.")
         return
 
-    selected_month = st.selectbox("Select Month", months_available, key="daily_rev_month")
+    selected_month = st.selectbox("Select Month", months_available, key="expense_month")
 
     filtered = expenses_df[expenses_df["Month"] == selected_month]
 
