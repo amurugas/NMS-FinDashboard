@@ -272,6 +272,7 @@ def render_overview(monthly_df: pd.DataFrame, expenses_df: pd.DataFrame) -> None
         )
         st.plotly_chart(pie, use_container_width=True)
 
+
     with right:
         bar = px.bar(
             cat_totals,
